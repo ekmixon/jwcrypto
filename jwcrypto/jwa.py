@@ -582,10 +582,7 @@ class _Pbes2HsAesKw(_RawKeyMgmt):
     def _get_key(self, alg, key, p2s, p2c):
         if not isinstance(key, JWK):
             # backwards compatiblity for old interface
-            if isinstance(key, bytes):
-                plain = key
-            else:
-                plain = key.encode('utf8')
+            plain = key if isinstance(key, bytes) else key.encode('utf8')
         else:
             plain = base64url_decode(key.get_op_key())
 
@@ -710,10 +707,9 @@ class _EcdhEs(_RawKeyMgmt, JWAAlgorithm):
             raise ValueError('key is not a JWK object')
         if key['kty'] not in ['EC', 'OKP']:
             raise InvalidJWEKeyType('EC or OKP', key['kty'])
-        if key['kty'] == 'OKP':
-            if key['crv'] not in ['X25519', 'X448']:
-                raise InvalidJWEKeyType('X25519 or X448',
-                                        key['crv'])
+        if key['kty'] == 'OKP' and key['crv'] not in ['X25519', 'X448']:
+            raise InvalidJWEKeyType('X25519 or X448',
+                                    key['crv'])
 
     def _derive(self, privkey, pubkey, alg, bitsize, headers):
         # OtherInfo is defined in NIST SP 56A 5.8.1.2.1
@@ -793,11 +789,9 @@ class _EcdhEs(_RawKeyMgmt, JWAAlgorithm):
                           alg, dk_size, headers)
         if self.keysize is None:
             return dk
-        else:
-            aeskw = self.aeskwmap[self.keysize]()
-            kek = JWK(kty="oct", use="enc", k=base64url_encode(dk))
-            cek = aeskw.unwrap(kek, bitsize, ek, headers)
-            return cek
+        aeskw = self.aeskwmap[self.keysize]()
+        kek = JWK(kty="oct", use="enc", k=base64url_encode(dk))
+        return aeskw.unwrap(kek, bitsize, ek, headers)
 
 
 class _EcdhEsAes128Kw(_EcdhEs):

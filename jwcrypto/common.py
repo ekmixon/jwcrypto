@@ -50,7 +50,7 @@ class InvalidJWAAlgorithm(JWException):
     def __init__(self, message=None):
         msg = 'Invalid JWA Algorithm name'
         if message:
-            msg += ' (%s)' % message
+            msg += f' ({message})'
         super(InvalidJWAAlgorithm, self).__init__(msg)
 
 
@@ -75,10 +75,7 @@ class InvalidJWEOperation(JWException):
 
     def __init__(self, message=None, exception=None):
         msg = None
-        if message:
-            msg = message
-        else:
-            msg = 'Unknown Operation Failure'
+        msg = message or 'Unknown Operation Failure'
         if exception:
             msg += ' {%s}' % repr(exception)
         super(InvalidJWEOperation, self).__init__(msg)
@@ -92,7 +89,7 @@ class InvalidJWEKeyType(JWException):
     """
 
     def __init__(self, expected, obtained):
-        msg = 'Expected key type %s, got %s' % (expected, obtained)
+        msg = f'Expected key type {expected}, got {obtained}'
         super(InvalidJWEKeyType, self).__init__(msg)
 
 
@@ -117,10 +114,7 @@ class InvalidJWSERegOperation(JWException):
 
     def __init__(self, message=None, exception=None):
         msg = None
-        if message:
-            msg = message
-        else:
-            msg = 'Unknown Operation Failure'
+        msg = message or 'Unknown Operation Failure'
         if exception:
             msg += ' {%s}' % repr(exception)
         super(InvalidJWSERegOperation, self).__init__(msg)
@@ -152,10 +146,7 @@ class JWSEHeaderRegistry(MutableMapping):
                                           % h)
 
         param = self._registry[h]
-        if param.check_fn is None:
-            return True
-        else:
-            return param.check_fn(value)
+        return True if param.check_fn is None else param.check_fn(value)
 
     def __getitem__(self, key):
         return self._registry.__getitem__(key)

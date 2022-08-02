@@ -54,10 +54,7 @@ class InvalidJWEData(JWException):
 
     def __init__(self, message=None, exception=None):
         msg = None
-        if message:
-            msg = message
-        else:
-            msg = 'Unknown Data Verification Failure'
+        msg = message or 'Unknown Data Verification Failure'
         if exception:
             msg += ' {%s}' % str(exception)
         super(InvalidJWEData, self).__init__(msg)
@@ -145,10 +142,7 @@ class JWE:
         Can be changed by setting a list of algorithm names.
         """
 
-        if self._allowed_algs:
-            return self._allowed_algs
-        else:
-            return default_allowed_algs
+        return self._allowed_algs or default_allowed_algs
 
     @allowed_algs.setter
     def allowed_algs(self, algs):
@@ -285,13 +279,12 @@ class JWE:
             if 'protected' not in self.objects:
                 raise InvalidJWEOperation(
                     "Can't use compact encoding without protected headers")
-            else:
-                ph = json_decode(self.objects['protected'])
-                for required in 'alg', 'enc':
-                    if required not in ph:
-                        raise InvalidJWEOperation(
-                            "Can't use compact encoding, '%s' must be in the "
-                            "protected header" % required)
+            ph = json_decode(self.objects['protected'])
+            for required in 'alg', 'enc':
+                if required not in ph:
+                    raise InvalidJWEOperation(
+                        "Can't use compact encoding, '%s' must be in the "
+                        "protected header" % required)
             if 'recipients' in self.objects:
                 if len(self.objects['recipients']) != 1:
                     raise InvalidJWEOperation("Invalid number of recipients")
@@ -334,14 +327,14 @@ class JWE:
                     e = {}
                     if 'encrypted_key' in rec:
                         e['encrypted_key'] = \
-                            base64url_encode(rec['encrypted_key'])
+                                base64url_encode(rec['encrypted_key'])
                     if 'header' in rec:
                         e['header'] = json_decode(rec['header'])
                     enc['recipients'].append(e)
             else:
                 if 'encrypted_key' in obj:
                     enc['encrypted_key'] = \
-                        base64url_encode(obj['encrypted_key'])
+                            base64url_encode(obj['encrypted_key'])
                 if 'header' in obj:
                     enc['header'] = json_decode(obj['header'])
             return json_encode(enc)
@@ -350,10 +343,9 @@ class JWE:
         for k in crit:
             if k not in self.header_registry:
                 raise InvalidJWEData('Unknown critical header: "%s"' % k)
-            else:
-                if not self.header_registry[k].supported:
-                    raise InvalidJWEData('Unsupported critical header: '
-                                         '"%s"' % k)
+            if not self.header_registry[k].supported:
+                raise InvalidJWEData('Unsupported critical header: '
+                                     '"%s"' % k)
 
     # FIXME: allow to specify which algorithms to accept as valid
     def _decrypt(self, key, ppe):
@@ -364,9 +356,11 @@ class JWE:
         self._check_crit(jh.get('crit', {}))
 
         for hdr in jh:
-            if hdr in self.header_registry:
-                if not self.header_registry.check_header(hdr, self):
-                    raise InvalidJWEData('Failed header check')
+            if (
+                hdr in self.header_registry
+                and not self.header_registry.check_header(hdr, self)
+            ):
+                raise InvalidJWEData('Failed header check')
 
         alg = self._jwa_keymgmt(jh.get('alg', None))
         enc = self._jwa_enc(jh.get('enc', None))
@@ -414,12 +408,12 @@ class JWE:
                 try:
                     self._decrypt(key, rec)
                 except Exception as e:  # pylint: disable=broad-except
-                    self.decryptlog.append('Failed: [%s]' % repr(e))
+                    self.decryptlog.append(f'Failed: [{repr(e)}]')
         else:
             try:
                 self._decrypt(key, self.objects)
             except Exception as e:  # pylint: disable=broad-except
-                self.decryptlog.append('Failed: [%s]' % repr(e))
+                self.decryptlog.append(f'Failed: [{repr(e)}]')
 
         if not self.plaintext:
             raise InvalidJWEData('No recipient matched the provided '
@@ -466,14 +460,14 @@ class JWE:
                         e = {}
                         if 'encrypted_key' in rec:
                             e['encrypted_key'] = \
-                                base64url_decode(rec['encrypted_key'])
+                                    base64url_decode(rec['encrypted_key'])
                         if 'header' in rec:
                             e['header'] = json_encode(rec['header'])
                         o['recipients'].append(e)
                 else:
                     if 'encrypted_key' in djwe:
                         o['encrypted_key'] = \
-                            base64url_decode(djwe['encrypted_key'])
+                                base64url_decode(djwe['encrypted_key'])
                     if 'header' in djwe:
                         o['header'] = json_encode(djwe['header'])
 

@@ -42,10 +42,7 @@ class InvalidJWSSignature(JWException):
 
     def __init__(self, message=None, exception=None):
         msg = None
-        if message:
-            msg = str(message)
-        else:
-            msg = 'Unknown Signature Verification Failure'
+        msg = str(message) if message else 'Unknown Signature Verification Failure'
         if exception:
             msg += ' {%s}' % str(exception)
         super(InvalidJWSSignature, self).__init__(msg)
@@ -61,7 +58,7 @@ class InvalidJWSObject(JWException):
     def __init__(self, message=None, exception=None):
         msg = 'Invalid JWS Object'
         if message:
-            msg += ' [%s]' % message
+            msg += f' [{message}]'
         if exception:
             msg += ' {%s}' % str(exception)
         super(InvalidJWSObject, self).__init__(msg)
@@ -76,10 +73,7 @@ class InvalidJWSOperation(JWException):
 
     def __init__(self, message=None, exception=None):
         msg = None
-        if message:
-            msg = message
-        else:
-            msg = 'Unknown Operation Failure'
+        msg = message or 'Unknown Operation Failure'
         if exception:
             msg += ' {%s}' % str(exception)
         super(InvalidJWSOperation, self).__init__(msg)
@@ -138,11 +132,10 @@ class JWSCore:
     def _payload(self):
         if self.header.get('b64', True):
             return base64url_encode(self.payload).encode('utf-8')
+        if isinstance(self.payload, bytes):
+            return self.payload
         else:
-            if isinstance(self.payload, bytes):
-                return self.payload
-            else:
-                return self.payload.encode('utf-8')
+            return self.payload.encode('utf-8')
 
     def sign(self):
         """Generates a signature"""
@@ -195,10 +188,7 @@ class JWS:
         Can be changed by setting a list of algorithm names.
         """
 
-        if self._allowed_algs:
-            return self._allowed_algs
-        else:
-            return default_allowed_algs
+        return self._allowed_algs or default_allowed_algs
 
     @allowed_algs.setter
     def allowed_algs(self, algs):
@@ -223,14 +213,12 @@ class JWS:
                     if k not in self.header_registry:
                         raise InvalidJWSObject(
                             'Unknown critical header: "%s"' % k)
-                    else:
-                        if not self.header_registry[k].supported:
-                            raise InvalidJWSObject(
-                                'Unsupported critical header: "%s"' % k)
+                    if not self.header_registry[k].supported:
+                        raise InvalidJWSObject(
+                            'Unsupported critical header: "%s"' % k)
             header = protected
-            if 'b64' in header:
-                if not isinstance(header['b64'], bool):
-                    raise InvalidJWSObject('b64 header must be a boolean')
+            if 'b64' in header and not isinstance(header['b64'], bool):
+                raise InvalidJWSObject('b64 header must be a boolean')
 
         for hn in headers:
             if hn is None:
@@ -238,9 +226,11 @@ class JWS:
             if header is None:
                 header = {}
             for h in list(hn.keys()):
-                if h in self.header_registry:
-                    if self.header_registry[h].mustprotect:
-                        raise InvalidJWSObject('"%s" must be protected' % h)
+                if (
+                    h in self.header_registry
+                    and self.header_registry[h].mustprotect
+                ):
+                    raise InvalidJWSObject('"%s" must be protected' % h)
                 if h in header:
                     raise InvalidJWSObject('Duplicate header: "%s"' % h)
             header.update(hn)
@@ -260,16 +250,17 @@ class JWS:
             if not isinstance(p, dict):
                 raise InvalidJWSSignature('Invalid Protected header')
         # merge heders, and verify there are no duplicates
-        if header:
-            if not isinstance(header, dict):
-                raise InvalidJWSSignature('Invalid Unprotected header')
+        if header and not isinstance(header, dict):
+            raise InvalidJWSSignature('Invalid Unprotected header')
 
         # Merge and check (critical) headers
         chk_hdrs = self._merge_check_headers(p, header)
         for hdr in chk_hdrs:
-            if hdr in self.header_registry:
-                if not self.header_registry.check_header(hdr, self):
-                    raise InvalidJWSSignature('Failed header check')
+            if (
+                hdr in self.header_registry
+                and not self.header_registry.check_header(hdr, self)
+            ):
+                raise InvalidJWSSignature('Failed header check')
 
         # check 'alg' is present
         if alg is None and 'alg' not in p:
@@ -310,7 +301,7 @@ class JWS:
                              obj.get('header', None))
                 obj['valid'] = True
             except Exception as e:  # pylint: disable=broad-except
-                self.verifylog.append('Failed: [%s]' % repr(e))
+                self.verifylog.append(f'Failed: [{repr(e)}]')
 
         elif 'signatures' in obj:
             for o in obj['signatures']:
@@ -323,7 +314,7 @@ class JWS:
                     # Ok if at least one verifies
                     obj['valid'] = True
                 except Exception as e:  # pylint: disable=broad-except
-                    self.verifylog.append('Failed: [%s]' % repr(e))
+                    self.verifylog.append(f'Failed: [{repr(e)}]')
         else:
             raise InvalidJWSSignature('No signatures available')
 
@@ -346,9 +337,8 @@ class JWS:
         else:
             p = json_decode(protected)
             b64n = p.get('b64')
-            if b64n is not None:
-                if not isinstance(b64n, bool):
-                    raise InvalidJWSObject('b64 header must be boolean')
+            if b64n is not None and not isinstance(b64n, bool):
+                raise InvalidJWSObject('b64 header must be boolean')
         b64 = o.get('b64')
         if b64 == b64n:
             return
@@ -451,9 +441,8 @@ class JWS:
                 raise InvalidJWSObject('b64 header must always be critical')
             b64 = p['b64']
 
-        if 'b64' in self.objects:
-            if b64 != self.objects['b64']:
-                raise InvalidJWSObject('Mixed b64 headers on signatures')
+        if 'b64' in self.objects and b64 != self.objects['b64']:
+            raise InvalidJWSObject('Mixed b64 headers on signatures')
 
         h = None
         if header:
@@ -526,15 +515,14 @@ class JWS:
                 raise InvalidJWSSignature("No available signature")
             if not self.objects.get('valid', False):
                 raise InvalidJWSSignature("No valid signature found")
-            if 'protected' in self.objects:
-                p = json_decode(self.objects['protected'])
-                if 'alg' not in p:
-                    raise InvalidJWSOperation("Compact encoding must carry "
-                                              "'alg' in protected header")
-                protected = base64url_encode(self.objects['protected'])
-            else:
+            if 'protected' not in self.objects:
                 raise InvalidJWSOperation("Can't use compact encoding "
                                           "without protected header")
+            p = json_decode(self.objects['protected'])
+            if 'alg' not in p:
+                raise InvalidJWSOperation("Compact encoding must carry "
+                                          "'alg' in protected header")
+            protected = base64url_encode(self.objects['protected'])
             if self.objects.get('payload'):
                 if self.objects.get('b64', True):
                     payload = base64url_encode(self.objects['payload'])
@@ -597,19 +585,13 @@ class JWS:
     def jose_header(self):
         obj = self.objects
         if 'signature' in obj:
-            if 'protected' in obj:
-                p = json_decode(obj['protected'])
-            else:
-                p = None
+            p = json_decode(obj['protected']) if 'protected' in obj else None
             return self._merge_check_headers(p, obj.get('header', {}))
         elif 'signatures' in self.objects:
             jhl = []
             for o in obj['signatures']:
                 jh = {}
-                if 'protected' in o:
-                    p = json_decode(o['protected'])
-                else:
-                    p = None
+                p = json_decode(o['protected']) if 'protected' in o else None
                 jh = self._merge_check_headers(p, o.get('header', {}))
                 jhl.append(jh)
             return jhl

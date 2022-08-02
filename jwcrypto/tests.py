@@ -438,7 +438,7 @@ class TestJWK(unittest.TestCase):
         self.assertEqual(len(ks['keys']), len(ks2['keys']))
 
     def test_thumbprint(self):
-        for i in range(0, len(PublicKeys['keys'])):
+        for i in range(len(PublicKeys['keys'])):
             k = jwk.JWK(**PublicKeys['keys'][i])
             self.assertEqual(
                 k.thumbprint(),
@@ -546,7 +546,7 @@ class TestJWK(unittest.TestCase):
             jwk.JWK(**key)
 
     def test_thumbprint_eddsa(self):
-        for i in range(0, len(PublicKeys_EdDsa['keys'])):
+        for i in range(len(PublicKeys_EdDsa['keys'])):
             k = jwk.JWK(**PublicKeys_EdDsa['keys'][i])
             self.assertEqual(
                 k.thumbprint(),
@@ -848,7 +848,7 @@ class TestJWS(unittest.TestCase):
         self.assertRaises(jws.InvalidJWSOperation,
                           self.check_sign, A5_example)
         a5_bis = {'allowed_algs': ['none']}
-        a5_bis.update(A5_example)
+        a5_bis |= A5_example
         self.check_sign(a5_bis)
 
     def test_A6(self):
@@ -903,9 +903,7 @@ class TestJWS(unittest.TestCase):
             jws.JWS(A6_example['payload'], header_registry=newreg)
 
     def test_EdDsa_signing_and_verification(self):
-        examples = []
-        if 'Ed25519' in jwk.ImplementedOkpCurves:
-            examples = [E_Ed25519]
+        examples = [E_Ed25519] if 'Ed25519' in jwk.ImplementedOkpCurves else []
         for curve_example in examples:
             key = jwk.JWK.from_json(curve_example['key_json'])
             payload = curve_example['payload']
@@ -914,7 +912,7 @@ class TestJWS(unittest.TestCase):
             jws_test.add_signature(key, None,
                                    json_encode(protected_header), None)
             jws_test_serialization_compact = \
-                jws_test.serialize(compact=True)
+                    jws_test.serialize(compact=True)
             self.assertEqual(jws_test_serialization_compact,
                              curve_example['jws_serialization_compact'])
             jws_verify = jws.JWS()
@@ -1261,10 +1259,10 @@ class TestJWE(unittest.TestCase):
             jwe.JWE(header_registry=newreg)
 
     def test_X25519_ECDH(self):
-        plaintext = b"plain"
-        protected = json_encode(X25519_Protected_Header_no_epk)
         if 'X25519' in jwk.ImplementedOkpCurves:
+            protected = json_encode(X25519_Protected_Header_no_epk)
             x25519key = jwk.JWK.generate(kty='OKP', crv='X25519')
+            plaintext = b"plain"
             e1 = jwe.JWE(plaintext, protected)
             e1.add_recipient(x25519key)
             enc = e1.serialize()
@@ -1315,43 +1313,43 @@ class TestMMA(unittest.TestCase):
         cls.sub_iterations = 100
 
     def test_MMA(self):
-        if self.enableMMA:
+        if not self.enableMMA:
+            return
+        print('Testing MMA timing attacks')
 
-            print('Testing MMA timing attacks')
+        ok_cek = 0
+        ok_e = jwe.JWE(algs=jwe_algs_and_rsa1_5)
+        ok_e.deserialize(MMA_vector_ok_cek)
+        ko_cek = 0
+        ko_e = jwe.JWE(algs=jwe_algs_and_rsa1_5)
+        ko_e.deserialize(MMA_vector_ko_cek)
 
-            ok_cek = 0
-            ok_e = jwe.JWE(algs=jwe_algs_and_rsa1_5)
-            ok_e.deserialize(MMA_vector_ok_cek)
-            ko_cek = 0
-            ko_e = jwe.JWE(algs=jwe_algs_and_rsa1_5)
-            ko_e.deserialize(MMA_vector_ko_cek)
+        import time
+        counter = getattr(time, 'perf_counter', time.time)
 
-            import time
-            counter = getattr(time, 'perf_counter', time.time)
+        for _ in range(self.iterations):
+            start = counter()
+            for _ in range(self.sub_iterations):
+                with self.assertRaises(jwe.InvalidJWEData):
+                    ok_e.decrypt(MMA_vector_key)
+            stop = counter()
+            ok_cek += (stop - start) / self.sub_iterations
 
-            for _ in range(self.iterations):
-                start = counter()
-                for _ in range(self.sub_iterations):
-                    with self.assertRaises(jwe.InvalidJWEData):
-                        ok_e.decrypt(MMA_vector_key)
-                stop = counter()
-                ok_cek += (stop - start) / self.sub_iterations
+            start = counter()
+            for _ in range(self.sub_iterations):
+                with self.assertRaises(jwe.InvalidJWEData):
+                    ko_e.decrypt(MMA_vector_key)
+            stop = counter()
+            ko_cek += (stop - start) / self.sub_iterations
 
-                start = counter()
-                for _ in range(self.sub_iterations):
-                    with self.assertRaises(jwe.InvalidJWEData):
-                        ko_e.decrypt(MMA_vector_key)
-                stop = counter()
-                ko_cek += (stop - start) / self.sub_iterations
+        ok_cek /= self.iterations
+        ko_cek /= self.iterations
 
-            ok_cek /= self.iterations
-            ko_cek /= self.iterations
-
-            deviation = ((ok_cek - ko_cek) / ok_cek) * 100
-            print('MMA ok cek: {}'.format(ok_cek))
-            print('MMA ko cek: {}'.format(ko_cek))
-            print('MMA deviation: {}% ({})'.format(int(deviation), deviation))
-            self.assertLess(deviation, 2)
+        deviation = ((ok_cek - ko_cek) / ok_cek) * 100
+        print(f'MMA ok cek: {ok_cek}')
+        print(f'MMA ko cek: {ko_cek}')
+        print(f'MMA deviation: {int(deviation)}% ({deviation})')
+        self.assertLess(deviation, 2)
 
 
 # RFC 7519
@@ -1472,7 +1470,7 @@ class TestJWT(unittest.TestCase):
     def test_invalid_claim_type(self):
         key = jwk.JWK(**E_A2_key)
         claims = {"testclaim": "test"}
-        claims.update(A1_claims)
+        claims |= A1_claims
         t = jwt.JWT(A1_header, claims, algs=jwe_algs_and_rsa1_5)
         t.make_encrypted_token(key)
         token = t.serialize()
@@ -1683,7 +1681,7 @@ class ConformanceTests(unittest.TestCase):
 
     def test_none_key(self):
         e = "eyJhbGciOiJub25lIn0." + \
-            "eyJpc3MiOiJqb2UiLCJodHRwOi8vZXhhbXBsZS5jb20vaXNfcm9vdCI6dHJ1ZX0."
+                "eyJpc3MiOiJqb2UiLCJodHRwOi8vZXhhbXBsZS5jb20vaXNfcm9vdCI6dHJ1ZX0."
         token = jwt.JWT(algs=['none'])
         k = jwk.JWK(generate='oct', size=0)
         token.deserialize(jwt=e, key=k)
@@ -1718,9 +1716,7 @@ class JWATests(unittest.TestCase):
         for name, cls in jwa.JWA.algorithms_registry.items():
             self.assertEqual(cls.name, name)
             self.assertIn(cls.algorithm_usage_location, {'alg', 'enc'})
-            if name == 'ECDH-ES':
-                self.assertIs(cls.keysize, None)
-            elif name == 'EdDSA':
+            if name in ['ECDH-ES', 'EdDSA']:
                 self.assertIs(cls.keysize, None)
             else:
                 self.assertIsInstance(cls.keysize, int)
@@ -1765,8 +1761,8 @@ class TestUnencodedPayload(unittest.TestCase):
 
     def test_regular(self):
         result = \
-            'eyJhbGciOiJIUzI1NiJ9.JC4wMg.' + \
-            '5mvfOroL-g7HyqJoozehmsaqmvTYGEq5jTI1gVvoEoQ'
+                'eyJhbGciOiJIUzI1NiJ9.JC4wMg.' + \
+                '5mvfOroL-g7HyqJoozehmsaqmvTYGEq5jTI1gVvoEoQ'
 
         s = jws.JWS(rfc7797_payload)
         s.add_signature(jwk.JWK(**SymmetricKeys['keys'][1]),
@@ -1776,8 +1772,8 @@ class TestUnencodedPayload(unittest.TestCase):
 
     def test_compat_unencoded(self):
         result = \
-            'eyJhbGciOiJIUzI1NiIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il19..' + \
-            'A5dxf2s96_n5FLueVuW1Z_vh161FwXZC4YLPff6dmDY'
+                'eyJhbGciOiJIUzI1NiIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il19..' + \
+                'A5dxf2s96_n5FLueVuW1Z_vh161FwXZC4YLPff6dmDY'
 
         s = jws.JWS(rfc7797_payload)
         s.add_signature(jwk.JWK(**SymmetricKeys['keys'][1]),

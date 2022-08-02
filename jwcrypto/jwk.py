@@ -217,11 +217,11 @@ class InvalidJWKUsage(JWException):
         if self.use in list(JWKUseRegistry.keys()):
             usage = JWKUseRegistry[self.use]
         else:
-            usage = 'Unknown(%s)' % self.use
+            usage = f'Unknown({self.use})'
         if self.value in list(JWKUseRegistry.keys()):
             valid = JWKUseRegistry[self.value]
         else:
-            valid = 'Unknown(%s)' % self.value
+            valid = f'Unknown({self.value})'
         return 'Invalid usage requested: "%s". Valid for: "%s"' % (usage,
                                                                    valid)
 
@@ -242,13 +242,13 @@ class InvalidJWKOperation(JWException):
         if self.op in list(JWKOperationsRegistry.keys()):
             op = JWKOperationsRegistry[self.op]
         else:
-            op = 'Unknown(%s)' % self.op
+            op = f'Unknown({self.op})'
         valid = []
         for v in self.values:
             if v in list(JWKOperationsRegistry.keys()):
                 valid.append(JWKOperationsRegistry[v])
             else:
-                valid.append('Unknown(%s)' % v)
+                valid.append(f'Unknown({v})')
         return 'Invalid operation requested: "%s". Valid for: "%s"' % (op,
                                                                        valid)
 
@@ -313,7 +313,7 @@ class JWK(dict):
         kty = None
         try:
             kty = kwargs['kty']
-            gen = getattr(obj, '_generate_%s' % kty)
+            gen = getattr(obj, f'_generate_{kty}')
         except (KeyError, AttributeError) as e:
             raise InvalidJWKType(kty) from e
         gen(kwargs)
@@ -323,7 +323,7 @@ class JWK(dict):
         kty = None
         try:
             kty = params.pop('generate')
-            gen = getattr(self, '_generate_%s' % kty)
+            gen = getattr(self, f'_generate_{kty}')
         except (KeyError, AttributeError) as e:
             raise InvalidJWKType(kty) from e
 
@@ -350,9 +350,7 @@ class JWK(dict):
         self.import_key(**params)
 
     def _encode_int(self, i, bit_size=None):
-        extend = 0
-        if bit_size is not None:
-            extend = ((bit_size + 7) // 8) * 2
+        extend = ((bit_size + 7) // 8) * 2 if bit_size is not None else 0
         hexi = hex(i).rstrip("L").lstrip("0x")
         hexl = len(hexi)
         if extend > hexl:
@@ -507,9 +505,9 @@ class JWK(dict):
 
         for name, val in JWKValuesRegistry[kty].items():
             if val.required and name not in newkey:
-                raise InvalidJWKValue('Missing required value %s' % name)
+                raise InvalidJWKValue(f'Missing required value {name}')
             if val.type == ParmType.unsupported and name in newkey:
-                raise InvalidJWKValue('Unsupported parameter %s' % name)
+                raise InvalidJWKValue(f'Unsupported parameter {name}')
             if val.type == ParmType.b64 and name in newkey:
                 # Check that the value is base64url encoded
                 try:
@@ -537,19 +535,16 @@ class JWK(dict):
         # check key_ops
         if 'key_ops' in newkey:
             for ko in newkey['key_ops']:
-                c = 0
-                for cko in newkey['key_ops']:
-                    if ko == cko:
-                        c += 1
+                c = sum(ko == cko for cko in newkey['key_ops'])
                 if c != 1:
                     raise InvalidJWKValue('Duplicate values in "key_ops"')
 
         # check use/key_ops consistency
         if 'use' in newkey and 'key_ops' in newkey:
             sigl = ['sign', 'verify']
-            encl = ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey',
-                    'deriveKey', 'deriveBits']
             if newkey['use'] == 'sig':
+                encl = ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey',
+                        'deriveKey', 'deriveBits']
                 for op in encl:
                     if op in newkey['key_ops']:
                         raise InvalidJWKValue('Incompatible "use" and'
@@ -604,19 +599,18 @@ class JWK(dict):
         :param as_dict(bool): If set to True export as python dict not JSON
         """
         pub = self._public_params()
-        if as_dict is True:
-            return pub
-        return json_encode(pub)
+        return pub if as_dict is True else json_encode(pub)
 
     def _public_params(self):
         if not self.has_public:
             raise InvalidJWKType("No public key available")
-        pub = {}
         reg = JWKParamsRegistry
-        for name in reg:
-            if reg[name].public:
-                if name in self.keys():
-                    pub[name] = self.get(name)
+        pub = {
+            name: self.get(name)
+            for name in reg
+            if reg[name].public and name in self.keys()
+        }
+
         reg = JWKValuesRegistry[self.get('kty')]
         for name in reg:
             if reg[name].public:
@@ -625,10 +619,8 @@ class JWK(dict):
 
     def _export_all(self, as_dict=False):
         d = {}
-        d.update(self)
-        if as_dict is True:
-            return d
-        return json_encode(d)
+        d |= self
+        return d if as_dict is True else json_encode(d)
 
     def export_private(self, as_dict=False):
         """Export the private key in the standard JSON format.
@@ -655,10 +647,7 @@ class JWK(dict):
         if self.is_symmetric:
             return False
         reg = JWKValuesRegistry[self.get('kty')]
-        for name in reg:
-            if reg[name].public and name in self.keys():
-                return True
-        return False
+        return any(reg[name].public and name in self.keys() for name in reg)
 
     @property
     def has_private(self):
@@ -666,10 +655,7 @@ class JWK(dict):
         if self.is_symmetric:
             return False
         reg = JWKValuesRegistry[self.get('kty')]
-        for name in reg:
-            if not reg[name].public and name in self.keys():
-                return True
-        return False
+        return any(not reg[name].public and name in self.keys() for name in reg)
 
     @property
     def is_symmetric(self):
@@ -719,8 +705,7 @@ class JWK(dict):
         use = self.get('use')
         if use and use != usage:
             raise InvalidJWKUsage(usage, use)
-        ops = self.get('key_ops')
-        if ops:
+        if ops := self.get('key_ops'):
             if not isinstance(ops, list):
                 ops = [ops]
             if operation not in ops:
@@ -829,10 +814,10 @@ class JWK(dict):
         elif operation == 'verify':
             self._check_constraints('sig', operation)
             return self._get_public_key(arg)
-        elif operation == 'encrypt' or operation == 'wrapKey':
+        elif operation in ['encrypt', 'wrapKey']:
             self._check_constraints('enc', operation)
             return self._get_public_key(arg)
-        elif operation == 'decrypt' or operation == 'unwrapKey':
+        elif operation in ['decrypt', 'unwrapKey']:
             self._check_constraints('enc', operation)
             return self._get_private_key(arg)
         else:
@@ -1003,8 +988,7 @@ class JWK(dict):
             if name == kty:
                 continue
             if item in list(JWKValuesRegistry[name].keys()):
-                raise KeyError("Cannot set '{}' on '{}' key type".format(
-                               item, kty))
+                raise KeyError(f"Cannot set '{item}' on '{kty}' key type")
 
         # ok if we've come this far it means we have an unknown parameter
         super(JWK, self).__setitem__(item, value)
@@ -1031,25 +1015,27 @@ class JWK(dict):
         super(JWK, self).__delitem__(item)
 
     def __eq__(self, other):
-        if not isinstance(other, JWK):
-            return NotImplemented
-
-        return self.thumbprint() == other.thumbprint() and \
-            self.get('kid') == other.get('kid')
+        return (
+            self.thumbprint() == other.thumbprint()
+            and self.get('kid') == other.get('kid')
+            if isinstance(other, JWK)
+            else NotImplemented
+        )
 
     def __hash__(self):
         return hash((self.thumbprint(), self.get('kid')))
 
     def __getattr__(self, item):
         try:
-            if item in JWKParamsRegistry.keys():
-                if item in self.keys():
-                    return self.get(item)
+            if item in JWKParamsRegistry.keys() and item in self.keys():
+                return self.get(item)
             kty = self.get('kty')
-            if kty is not None:
-                if item in list(JWKValuesRegistry[kty].keys()):
-                    if item in self.keys():
-                        return self.get(item)
+            if (
+                kty is not None
+                and item in list(JWKValuesRegistry[kty].keys())
+                and item in self.keys()
+            ):
+                return self.get(item)
             raise KeyError
         except KeyError:
             raise AttributeError(item) from None
@@ -1082,8 +1068,7 @@ class JWK(dict):
 
     # Prevent accidental disclosure of key material via repr()
     def __repr__(self):
-        repr_dict = {}
-        repr_dict['kid'] = self.get('kid', 'Missing Key ID')
+        repr_dict = {'kid': self.get('kid', 'Missing Key ID')}
         repr_dict['thumbprint'] = self.thumbprint()
         return json_encode(repr_dict)
 
@@ -1150,14 +1135,10 @@ class JWKSet(dict):
         exp_dict = {}
         for k, v in self.items():
             if k == 'keys':
-                keys = []
-                for jwk in v:
-                    keys.append(jwk.export(private_keys, as_dict=True))
+                keys = [jwk.export(private_keys, as_dict=True) for jwk in v]
                 v = keys
             exp_dict[k] = v
-        if as_dict is True:
-            return exp_dict
-        return json_encode(exp_dict)
+        return exp_dict if as_dict is True else json_encode(exp_dict)
 
     def import_keyset(self, keyset):
         """Imports a RFC 7517 key set using the standard JSON format.
@@ -1193,18 +1174,13 @@ class JWKSet(dict):
         """Gets a key from the set.
         :param kid: the 'kid' key identifier.
         """
-        for jwk in self['keys']:
-            if jwk.get('kid') == kid:
-                return jwk
-        return None
+        return next((jwk for jwk in self['keys'] if jwk.get('kid') == kid), None)
 
     def __repr__(self):
         repr_dict = {}
         for k, v in self.items():
             if k == 'keys':
-                keys = []
-                for jwk in v:
-                    keys.append(repr(jwk))
+                keys = [repr(jwk) for jwk in v]
                 v = keys
             repr_dict[k] = v
         return json_encode(repr_dict)
